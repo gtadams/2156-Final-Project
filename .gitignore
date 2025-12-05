@@ -31,13 +31,6 @@ env/
 
 # Data
 data/
-*.stp
-*.step
-
-# Rendered images
-rendered_images/
-output/
-models/
 
 # IDE
 .vscode/
