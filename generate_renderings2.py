@@ -4,12 +4,46 @@ from PIL import Image
 import numpy as np
 import random
 from IPython.display import display
+from tqdm import tqdm
+import requests
+import shutil
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+
+# ------------------- DOWNLOAD STL FILES -------------------
+data_dir  = "https://www.dropbox.com/scl/fo/xnu0e0c0udo4qe5mn5gvu/AEvcg5S8PjhBBoBerNQ5ANY?rlkey=31i9mphl5w419kjccpiqzf3s2&st=5o7us7wz&dl=0"
+source_root = Path("data/STL_Files")
+target_root = Path("data/Renderings") # root output for images
+
+def _to_direct_dropbox(url):
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query))
+    query["dl"] = "1"
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+download_url = _to_direct_dropbox(data_dir)
+zip_path = source_root.parent / "source_dataset.zip"
+source_root.mkdir(parents=True, exist_ok=True)
+target_root.mkdir(parents=True, exist_ok=True)
+
+print(f"Downloading STL archive from Dropbox to {zip_path}...")
+with requests.get(download_url, stream=True) as resp:
+    resp.raise_for_status()
+    total_size = int(resp.headers.get('content-length', 0))
+    
+    with open(zip_path, "wb") as fh:
+        with tqdm(total=total_size, unit='B', unit_scale=True, desc="Downloading") as pbar:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    fh.write(chunk)
+                    pbar.update(len(chunk))
+
+print("Extracting archive...")
+shutil.unpack_archive(str(zip_path), str(source_root))
+zip_path.unlink()
+print('✓ Files downloaded and extracted.')
 
 # ------------------- CONFIG -------------------
 BLENDER_PATH = "/Applications/Blender.app/Contents/MacOS/Blender"
-
-STL_DIR = Path("/Users/ryandequintal/Desktop/FinalProject/STLFiles2")   # folder with all STLs
-OUTPUT_DIR = Path("/Users/ryandequintal/Desktop/FinalProject/Renders2") # root output for images
 
 NUM_VIEWS = 30         # images per part
 RESOLUTION = 512
@@ -18,8 +52,6 @@ SAMPLES = 64
 # Post-render augmentation
 GAUSSIAN_NOISE_STD = 10
 CROP_RATIO = 0.9
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ------------------- BLENDER SCRIPT TEMPLATE -------------------
 BLENDER_SCRIPT = """
@@ -253,11 +285,11 @@ print("✓ All STL files rendered!")
 """
 
 # ------------------- SAVE AND RUN BLENDER -------------------
-script_path = OUTPUT_DIR / "temp_blender_render.py"
+script_path = target_root / "temp_blender_render.py"
 with open(script_path, "w") as f:
     f.write(BLENDER_SCRIPT.format(
-        stl_dir=str(STL_DIR),
-        output_dir=str(OUTPUT_DIR),
+        stl_dir=str(source_root),
+        output_dir=str(target_root),
         num_views=NUM_VIEWS,
         resolution=RESOLUTION,
         samples=SAMPLES
@@ -289,7 +321,7 @@ def augment_image(image_path: Path):
 
 # Apply to rendered images (skip already-augmented ones)
 rendered_files = sorted(
-    p for p in OUTPUT_DIR.rglob("*.jpg") if not p.stem.endswith("_aug")
+    p for p in target_root.rglob("*.jpg") if not p.stem.endswith("_aug")
 )
 augmented_files = [augment_image(p) for p in rendered_files]
 
